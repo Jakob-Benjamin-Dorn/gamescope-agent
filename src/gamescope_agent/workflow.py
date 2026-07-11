@@ -62,10 +62,15 @@ class GameScopeAgent:
 
         trace: list[TraceEvent] = []
         contextual_query = self.memory.contextualize(session_id, clean_question)
+        used_history = contextual_query != clean_question
         trace.append(
             TraceEvent(
                 step="resolve_context",
-                summary="Combined the current question with recent session history.",
+                summary=(
+                    "Resolved a follow-up reference with recent session history."
+                    if used_history
+                    else "No follow-up reference detected; used the question unchanged."
+                ),
             )
         )
 
@@ -77,7 +82,7 @@ class GameScopeAgent:
             )
         )
 
-        evaluation = self._evaluator.evaluate(clean_question, local_results)
+        evaluation = self._evaluator.evaluate(contextual_query, local_results)
         trace.append(
             TraceEvent(
                 step="evaluate_local",
@@ -94,7 +99,7 @@ class GameScopeAgent:
         }
         web_sources: list[WebSource] = []
         if not local_is_sufficient:
-            web_sources = self._web_searcher.search(clean_question, max_results=5)
+            web_sources = self._web_searcher.search(contextual_query, max_results=5)
             trace.append(
                 TraceEvent(
                     step="search_web",
@@ -103,7 +108,7 @@ class GameScopeAgent:
             )
 
         answer = self._answer_generator.generate(
-            clean_question,
+            contextual_query,
             local_results,
             evaluation,
             web_sources,

@@ -81,3 +81,53 @@ def test_session_history_is_added_to_follow_up_query() -> None:
     follow_up = agent.run("Which platform was it on?", session_id="s1")
     assert "Previous question:" in follow_up.contextual_query
     assert "Pokémon Gold and Silver" in follow_up.contextual_query
+
+
+def test_unrelated_question_does_not_inherit_session_history() -> None:
+    agent = build(useful=True)
+    agent.run("When was Pokémon Gold and Silver released?", session_id="s2")
+    independent = agent.run(
+        "Which game was an early 3D Mario platformer?", session_id="s2"
+    )
+    assert independent.contextual_query == (
+        "Which game was an early 3D Mario platformer?"
+    )
+
+
+class CapturingEvaluator(FakeEvaluator):
+    def __init__(self):
+        super().__init__(useful=True)
+        self.question = ""
+
+    def evaluate(self, question: str, results: list[RetrievalResult]):
+        self.question = question
+        return super().evaluate(question, results)
+
+
+class CapturingAnswerGenerator(FakeAnswerGenerator):
+    def __init__(self):
+        self.question = ""
+
+    def generate(self, question, local_results, evaluation, web_sources):
+        self.question = question
+        return super().generate(question, local_results, evaluation, web_sources)
+
+
+def test_follow_up_context_reaches_evaluation_and_answer_generation() -> None:
+    evaluator = CapturingEvaluator()
+    generator = CapturingAnswerGenerator()
+    agent = GameScopeAgent(
+        retriever=FakeRetriever(),
+        evaluator=evaluator,
+        web_searcher=FakeWebSearcher(),
+        answer_generator=generator,
+    )
+    agent.run("When was Pokémon Gold and Silver released?", session_id="s3")
+    follow_up = agent.run(
+        "What platform was the game from my first question released on?",
+        session_id="s3",
+    )
+
+    assert "Pokémon Gold and Silver" in follow_up.contextual_query
+    assert evaluator.question == follow_up.contextual_query
+    assert generator.question == follow_up.contextual_query

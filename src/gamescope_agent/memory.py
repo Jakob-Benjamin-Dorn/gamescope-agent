@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from dataclasses import dataclass
 
@@ -13,6 +14,22 @@ class ConversationTurn:
 
 
 class SessionMemory:
+    _FOLLOW_UP_PATTERNS = (
+        re.compile(
+            r"\b(?:my|the)\s+(?:first|previous|last|earlier)\s+question\b",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"\b(?:that|this|same|previous|earlier)\s+"
+            r"(?:game|title|one|release|platform)\b",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r"\b(?:it|its|that one|the former|the latter)\b",
+            re.IGNORECASE,
+        ),
+    )
+
     def __init__(self, max_turns: int = 6):
         self._sessions: dict[str, list[ConversationTurn]] = defaultdict(list)
         self._max_turns = max_turns
@@ -31,11 +48,19 @@ class SessionMemory:
 
     def contextualize(self, session_id: str, question: str) -> str:
         turns = self.history(session_id)
-        if not turns:
+        if not turns or not self._is_follow_up(question):
             return question
+
+        selected_turns = turns[-3:]
+        if re.search(r"\b(?:my|the)\s+first\s+question\b", question, re.I):
+            selected_turns = [turns[0]]
 
         history = "\n".join(
             f"Previous question: {turn.question}\nPrevious answer: {turn.answer}"
-            for turn in turns[-3:]
+            for turn in selected_turns
         )
         return f"{history}\nCurrent question: {question}"
+
+    @classmethod
+    def _is_follow_up(cls, question: str) -> bool:
+        return any(pattern.search(question) for pattern in cls._FOLLOW_UP_PATTERNS)

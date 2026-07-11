@@ -40,7 +40,7 @@ Local retrieval -> Evaluation -> Web search -> Final answer
 ## Architecture
 
 ```mermaid
-flowchart LR
+flowchart TB
     Q[Question] --> C[Contextualize with session memory]
     C --> R[Retrieve local evidence]
     R --> E[Evaluate sufficiency]
