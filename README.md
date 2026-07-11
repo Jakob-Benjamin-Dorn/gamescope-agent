@@ -1,6 +1,6 @@
 # GameScope Agent
 
-> **Status: Work in Progress / portfolio refactor**  
+> **Status: Work in Progress**
 > The core evidence-first workflow, persistent retrieval, web fallback, session
 > memory, tests, and CLI are implemented. A small UI and broader evaluation set
 > remain on the roadmap.
@@ -110,7 +110,7 @@ src/gamescope_agent/   application code
 data/games/             demonstration corpus
 examples/               minimal Python example
 tests/                  deterministic unit tests
-docs/                   architecture and migration notes
+docs/                   architecture documentation
 .github/workflows/      CI checks
 ```
 
