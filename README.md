@@ -139,9 +139,9 @@ docs/                   architecture documentation
 This project began as an educational assignment and was subsequently
 restructured as an independent portfolio repository. The original course
 framework and assignment instructions are intentionally excluded. See
-[`NOTICE.md`](NOTICE.md) and [`docs/migration-notes.md`](docs/migration-notes.md).
+[`NOTICE.md`](NOTICE.md).
 
 ## License
 
-The standalone application code is released under the MIT License. Game and
+The standalone application code is released under the [MIT License](LICENSE). Game and
 platform names are trademarks of their respective owners; see `NOTICE.md`.
