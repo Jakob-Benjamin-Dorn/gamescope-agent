@@ -38,6 +38,16 @@ class AnswerGenerator(Protocol):
     ) -> str: ...
 
 
+RETRIEVE_TOOL = "retrieve_game"
+EVALUATE_TOOL = "evaluate_retrieval"
+WEB_SEARCH_TOOL = "game_web_search"
+
+
+def local_evidence_is_sufficient(evaluation: EvaluationReport) -> bool:
+    """Single policy deciding whether the web fallback may be skipped."""
+    return evaluation.useful and evaluation.confidence in {"high", "medium"}
+
+
 class GameScopeAgent:
     """Stateful agent with a deterministic evidence-control workflow."""
 
@@ -74,7 +84,10 @@ class GameScopeAgent:
             )
         )
 
+        tool_calls: list[str] = []
+
         local_results = self._retriever.search(contextual_query, n_results=3)
+        tool_calls.append(RETRIEVE_TOOL)
         trace.append(
             TraceEvent(
                 step="retrieve_local",
@@ -83,6 +96,7 @@ class GameScopeAgent:
         )
 
         evaluation = self._evaluator.evaluate(contextual_query, local_results)
+        tool_calls.append(EVALUATE_TOOL)
         trace.append(
             TraceEvent(
                 step="evaluate_local",
@@ -93,13 +107,10 @@ class GameScopeAgent:
             )
         )
 
-        local_is_sufficient = evaluation.useful and evaluation.confidence in {
-            "high",
-            "medium",
-        }
         web_sources: list[WebSource] = []
-        if not local_is_sufficient:
+        if not local_evidence_is_sufficient(evaluation):
             web_sources = self._web_searcher.search(contextual_query, max_results=5)
+            tool_calls.append(WEB_SEARCH_TOOL)
             trace.append(
                 TraceEvent(
                     step="search_web",
@@ -130,22 +141,33 @@ class GameScopeAgent:
             web_sources=web_sources,
             answer=answer,
             trace=trace,
+            tool_calls=tool_calls,
         )
         validate_workflow(run)
         return run
 
 
-def validate_workflow(run: AgentRun) -> None:
-    sequence = run.tool_sequence
-    local_is_sufficient = run.evaluation.useful and run.evaluation.confidence in {
-        "high",
-        "medium",
-    }
-    expected = ["retrieve_game", "evaluate_retrieval"]
-    if not local_is_sufficient:
-        expected.append("game_web_search")
+def expected_tool_calls(evaluation: EvaluationReport) -> list[str]:
+    """Tool sequence the evidence policy requires for this evaluation."""
+    expected = [RETRIEVE_TOOL, EVALUATE_TOOL]
+    if not local_evidence_is_sufficient(evaluation):
+        expected.append(WEB_SEARCH_TOOL)
+    return expected
 
-    if sequence != expected:
+
+def validate_workflow(run: AgentRun) -> None:
+    """Check the recorded tool calls against the evidence policy.
+
+    ``run.tool_calls`` is written at the moment each service is called, so a
+    regression in ``GameScopeAgent.run`` (skipped evaluation, web search despite
+    sufficient local evidence, or no web search despite insufficient evidence)
+    is detected instead of silently passing.
+    """
+    expected = expected_tool_calls(run.evaluation)
+    if run.tool_calls != expected:
         raise RuntimeError(
-            f"Invalid tool sequence: expected {expected}, received {sequence}."
+            f"Invalid tool sequence: expected {expected}, received {run.tool_calls}."
         )
+
+    if run.web_sources and WEB_SEARCH_TOOL not in run.tool_calls:
+        raise RuntimeError("Web sources are present although no web search ran.")

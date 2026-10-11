@@ -1,5 +1,12 @@
-from gamescope_agent.models import EvaluationReport, RetrievalResult, WebSource
-from gamescope_agent.workflow import GameScopeAgent
+import pytest
+
+from gamescope_agent.models import (
+    AgentRun,
+    EvaluationReport,
+    RetrievalResult,
+    WebSource,
+)
+from gamescope_agent.workflow import GameScopeAgent, validate_workflow
 
 RESULT = RetrievalResult(
     rank=1,
@@ -131,3 +138,93 @@ def test_follow_up_context_reaches_evaluation_and_answer_generation() -> None:
     assert "Pokémon Gold and Silver" in follow_up.contextual_query
     assert evaluator.question == follow_up.contextual_query
     assert generator.question == follow_up.contextual_query
+
+
+def make_run(
+    *, useful: bool, tool_calls: list[str], with_web: bool = False
+) -> AgentRun:
+    return AgentRun(
+        session_id="check",
+        question="Q",
+        contextual_query="Q",
+        retrieval_results=[RESULT],
+        evaluation=EvaluationReport(
+            useful=useful,
+            confidence="high",
+            explanation="Test.",
+            missing_information="None",
+        ),
+        web_sources=(
+            [WebSource(rank=1, title="T", url="https://example.com", content="C")]
+            if with_web
+            else []
+        ),
+        answer="A",
+        trace=[],
+        tool_calls=tool_calls,
+    )
+
+
+def test_validation_accepts_the_policy_conform_sequences() -> None:
+    validate_workflow(
+        make_run(useful=True, tool_calls=["retrieve_game", "evaluate_retrieval"])
+    )
+    validate_workflow(
+        make_run(
+            useful=False,
+            tool_calls=["retrieve_game", "evaluate_retrieval", "game_web_search"],
+            with_web=True,
+        )
+    )
+
+
+def test_validation_rejects_web_search_despite_sufficient_evidence() -> None:
+    run = make_run(
+        useful=True,
+        tool_calls=["retrieve_game", "evaluate_retrieval", "game_web_search"],
+    )
+    with pytest.raises(RuntimeError, match="Invalid tool sequence"):
+        validate_workflow(run)
+
+
+def test_validation_rejects_missing_web_search_for_insufficient_evidence() -> None:
+    run = make_run(useful=False, tool_calls=["retrieve_game", "evaluate_retrieval"])
+    with pytest.raises(RuntimeError, match="Invalid tool sequence"):
+        validate_workflow(run)
+
+
+def test_validation_rejects_skipped_evaluation() -> None:
+    run = make_run(useful=True, tool_calls=["retrieve_game"])
+    with pytest.raises(RuntimeError, match="Invalid tool sequence"):
+        validate_workflow(run)
+
+
+def test_validation_rejects_web_sources_without_web_search() -> None:
+    run = make_run(
+        useful=True,
+        tool_calls=["retrieve_game", "evaluate_retrieval"],
+        with_web=True,
+    )
+    with pytest.raises(RuntimeError, match="no web search"):
+        validate_workflow(run)
+
+
+class SkippingAgent(GameScopeAgent):
+    """Simulates a regression: the agent never records the evaluation call."""
+
+    def run(self, question: str, session_id: str = "default") -> AgentRun:
+        run = super().run(question, session_id)
+        broken = run.model_copy(update={"tool_calls": ["retrieve_game"]})
+        validate_workflow(broken)
+        return broken
+
+
+def test_regression_in_recorded_calls_is_detected() -> None:
+    agent = SkippingAgent(
+        retriever=FakeRetriever(),
+        evaluator=FakeEvaluator(useful=True),
+        web_searcher=FakeWebSearcher(),
+        answer_generator=FakeAnswerGenerator(),
+    )
+    with pytest.raises(RuntimeError):
+        agent.run("When was it released?")

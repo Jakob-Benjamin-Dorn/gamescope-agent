@@ -90,12 +90,9 @@ class AgentRun(BaseModel):
     web_sources: list[WebSource] = Field(default_factory=list)
     answer: str
     trace: list[TraceEvent]
+    tool_calls: list[str] = Field(default_factory=list)
 
     @property
     def tool_sequence(self) -> list[str]:
-        mapping = {
-            "retrieve_local": "retrieve_game",
-            "evaluate_local": "evaluate_retrieval",
-            "search_web": "game_web_search",
-        }
-        return [mapping[event.step] for event in self.trace if event.step in mapping]
+        """Tools in the order they were actually called."""
+        return list(self.tool_calls)
