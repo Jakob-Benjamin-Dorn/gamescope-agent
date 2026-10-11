@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from gamescope_agent.memory import SessionMemory
+from gamescope_agent.memory import ConversationTurn, SessionMemory
 from gamescope_agent.models import (
     AgentRun,
     EvaluationReport,
@@ -38,6 +38,10 @@ class AnswerGenerator(Protocol):
     ) -> str: ...
 
 
+class QuestionRewriter(Protocol):
+    def rewrite(self, question: str, history: list[ConversationTurn]) -> str: ...
+
+
 RETRIEVE_TOOL = "retrieve_game"
 EVALUATE_TOOL = "evaluate_retrieval"
 WEB_SEARCH_TOOL = "game_web_search"
@@ -58,12 +62,41 @@ class GameScopeAgent:
         web_searcher: WebSearcher,
         answer_generator: AnswerGenerator,
         memory: SessionMemory | None = None,
+        question_rewriter: QuestionRewriter | None = None,
     ):
         self._retriever = retriever
         self._evaluator = evaluator
         self._web_searcher = web_searcher
         self._answer_generator = answer_generator
         self.memory = memory or SessionMemory()
+        self._question_rewriter = question_rewriter
+
+    def _resolve_context(self, session_id: str, question: str) -> tuple[str, str]:
+        """Return the query used for the whole run and a trace summary.
+
+        With a rewriter, a follow-up becomes a clean standalone question, so
+        retrieval, evaluation and answer generation do not see the raw chat
+        history. Without one, the keyword heuristic of ``SessionMemory`` is used.
+        """
+        if self._question_rewriter is None:
+            query = self.memory.contextualize(session_id, question)
+            summary = (
+                "Resolved a follow-up reference with recent session history."
+                if query != question
+                else "No follow-up reference detected; used the question unchanged."
+            )
+            return query, summary
+
+        history = self.memory.history(session_id)
+        if not history:
+            return question, "First question of the session; used it unchanged."
+
+        rewritten = self._question_rewriter.rewrite(question, history).strip()
+        if not rewritten:
+            return question, "Rewriting returned no text; used the question unchanged."
+        if rewritten == question:
+            return question, "Question is already self-contained; used it unchanged."
+        return rewritten, "Rewrote the follow-up as a standalone question."
 
     def run(self, question: str, session_id: str = "default") -> AgentRun:
         clean_question = question.strip()
@@ -71,18 +104,10 @@ class GameScopeAgent:
             raise ValueError("The question cannot be empty.")
 
         trace: list[TraceEvent] = []
-        contextual_query = self.memory.contextualize(session_id, clean_question)
-        used_history = contextual_query != clean_question
-        trace.append(
-            TraceEvent(
-                step="resolve_context",
-                summary=(
-                    "Resolved a follow-up reference with recent session history."
-                    if used_history
-                    else "No follow-up reference detected; used the question unchanged."
-                ),
-            )
+        contextual_query, context_summary = self._resolve_context(
+            session_id, clean_question
         )
+        trace.append(TraceEvent(step="resolve_context", summary=context_summary))
 
         tool_calls: list[str] = []
 

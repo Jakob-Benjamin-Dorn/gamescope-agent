@@ -228,3 +228,72 @@ def test_regression_in_recorded_calls_is_detected() -> None:
     )
     with pytest.raises(RuntimeError):
         agent.run("When was it released?")
+
+
+class FakeRewriter:
+    def __init__(self, result: str):
+        self.result = result
+        self.calls: list[tuple[str, int]] = []
+
+    def rewrite(self, question, history):
+        self.calls.append((question, len(history)))
+        return self.result
+
+
+class CapturingRetriever(FakeRetriever):
+    def __init__(self):
+        self.queries: list[str] = []
+
+    def search(self, query: str, n_results: int = 3):
+        self.queries.append(query)
+        return super().search(query, n_results)
+
+
+def build_with_rewriter(rewriter, retriever=None) -> GameScopeAgent:
+    return GameScopeAgent(
+        retriever=retriever or FakeRetriever(),
+        evaluator=FakeEvaluator(useful=True),
+        web_searcher=FakeWebSearcher(),
+        answer_generator=FakeAnswerGenerator(),
+        question_rewriter=rewriter,
+    )
+
+
+def test_rewriter_is_not_called_for_the_first_question() -> None:
+    rewriter = FakeRewriter("should not be used")
+    run = build_with_rewriter(rewriter).run("When was Pokémon Gold released?")
+
+    assert rewriter.calls == []
+    assert run.contextual_query == "When was Pokémon Gold released?"
+
+
+def test_rewritten_follow_up_replaces_the_raw_history() -> None:
+    retriever = CapturingRetriever()
+    rewriter = FakeRewriter("Which platform was Pokémon Gold and Silver released on?")
+    agent = build_with_rewriter(rewriter, retriever)
+    agent.run("When was Pokémon Gold and Silver released?", session_id="r1")
+    follow_up = agent.run("And on which platform?", session_id="r1")
+
+    assert rewriter.calls == [("And on which platform?", 1)]
+    assert follow_up.contextual_query == rewriter.result
+    assert retriever.queries[-1] == rewriter.result
+    assert "Previous question:" not in follow_up.contextual_query
+    assert follow_up.question == "And on which platform?"
+
+
+def test_empty_rewrite_falls_back_to_the_original_question() -> None:
+    agent = build_with_rewriter(FakeRewriter("   "))
+    agent.run("When was Pokémon Gold and Silver released?", session_id="r2")
+    follow_up = agent.run("And on which platform?", session_id="r2")
+
+    assert follow_up.contextual_query == "And on which platform?"
+
+
+def test_unchanged_rewrite_is_reported_as_self_contained() -> None:
+    question = "Which game was an early 3D Mario platformer?"
+    agent = build_with_rewriter(FakeRewriter(question))
+    agent.run("When was Pokémon Gold and Silver released?", session_id="r3")
+    run = agent.run(question, session_id="r3")
+
+    assert run.contextual_query == question
+    assert "self-contained" in run.trace[0].summary

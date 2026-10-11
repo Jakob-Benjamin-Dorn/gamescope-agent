@@ -4,6 +4,7 @@ from gamescope_agent.config import Settings
 from gamescope_agent.services import (
     OpenAIAnswerGenerator,
     OpenAIEvidenceEvaluator,
+    OpenAIQuestionRewriter,
     TavilyWebSearcher,
 )
 from gamescope_agent.vector_store import ChromaGameStore
@@ -17,4 +18,5 @@ def build_agent(settings: Settings) -> GameScopeAgent:
         evaluator=OpenAIEvidenceEvaluator(settings),
         web_searcher=TavilyWebSearcher(settings),
         answer_generator=OpenAIAnswerGenerator(settings),
+        question_rewriter=OpenAIQuestionRewriter(settings),
     )
