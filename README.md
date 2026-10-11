@@ -32,7 +32,8 @@ Local retrieval -> Evaluation -> Web search -> Final answer
 - Pydantic-validated game records and structured evaluation output
 - Controlled Tavily fallback for missing or time-sensitive information
 - Cited answers with an inspectable execution trace
-- Session memory for contextual follow-up questions
+- Session memory; follow-up questions are rewritten by the model into
+  standalone questions before retrieval
 - Idempotent corpus ingestion
 - Dependency-injected workflow with API-free unit tests
 - Ruff, Pytest, and GitHub Actions
@@ -41,7 +42,7 @@ Local retrieval -> Evaluation -> Web search -> Final answer
 
 ```mermaid
 flowchart TB
-    Q[Question] --> C[Contextualize with session memory]
+    Q[Question] --> C[Rewrite follow-up as standalone question]
     C --> R[Retrieve local evidence]
     R --> E[Evaluate sufficiency]
     E -->|sufficient| G[Generate cited answer]
@@ -117,6 +118,8 @@ docs/                   architecture documentation
 ## Limitations
 
 - Session memory is process-local and not intended for multi-user deployment.
+- Follow-up rewriting costs one extra model call per follow-up question; without
+  a rewriter the agent falls back to a keyword heuristic.
 - The demonstration corpus is deliberately small.
 - Evidence evaluation and final synthesis still depend on model quality.
 - Web snippets should not be treated as a substitute for full source review in
@@ -136,9 +139,9 @@ docs/                   architecture documentation
 This project began as an educational assignment and was subsequently
 restructured as an independent portfolio repository. The original course
 framework and assignment instructions are intentionally excluded. See
-[`NOTICE.md`](NOTICE.md) and [`docs/migration-notes.md`](docs/migration-notes.md).
+[`NOTICE.md`](NOTICE.md).
 
 ## License
 
-The standalone application code is released under the MIT License. Game and
+The standalone application code is released under the [MIT License](LICENSE). Game and
 platform names are trademarks of their respective owners; see `NOTICE.md`.
